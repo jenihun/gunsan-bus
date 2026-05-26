@@ -30,7 +30,7 @@ async def tago_get(url: str, params: dict) -> str:
 
 # 1. 노선번호 목록
 @app.get("/api/routes")
-async def get_routes(cityCode: str = "37050", numOfRows: int = 100, pageNo: int = 1):
+async def get_routes(cityCode: str = "35020", numOfRows: int = 100, pageNo: int = 1):
     xml = await tago_get(f"{ROUTE_BASE}/getRouteNoList", {
         "cityCode": cityCode, "numOfRows": numOfRows, "pageNo": pageNo
     })
