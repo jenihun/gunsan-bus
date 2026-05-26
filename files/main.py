@@ -38,7 +38,7 @@ async def get_routes(cityCode: str = "35020", numOfRows: int = 100, pageNo: int 
 
 # 2. 노선 상세정보 (배차간격)
 @app.get("/api/route-info")
-async def get_route_info(cityCode: str = "37050", routeId: str = ""):
+async def get_route_info(cityCode: str = "35020", routeId: str = ""):
     xml = await tago_get(f"{ROUTE_BASE}/getRouteInfoIem", {
         "cityCode": cityCode, "routeId": routeId
     })
