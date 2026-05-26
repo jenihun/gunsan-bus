@@ -46,7 +46,7 @@ async def get_route_info(cityCode: str = "35020", routeId: str = ""):
 
 # 3. 노선별 경유 정류소 (GPS 좌표)
 @app.get("/api/route-stops")
-async def get_route_stops(cityCode: str = "37050", routeId: str = "", numOfRows: int = 200, pageNo: int = 1):
+async def get_route_stops(cityCode: str = "35020", routeId: str = "", numOfRows: int = 200, pageNo: int = 1):
     xml = await tago_get(f"{ROUTE_BASE}/getRouteAcctoThrghSttnList", {
         "cityCode": cityCode, "routeId": routeId, "numOfRows": numOfRows, "pageNo": pageNo
     })
