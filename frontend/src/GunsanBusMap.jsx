@@ -1,4 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// Leaflet 기본 아이콘 설정
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
 
 // ── 백엔드 URL: Render 배포 후 실제 URL로 교체
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -37,7 +48,8 @@ async function fetchRouteStops(cityCode, routeId, pageNo = 1) {
 }
 
 // ── 분석 함수
-function calcDetour(stops) {
+function calcDetour(stopsDirObj) {
+  const stops = stopsDirObj?.up || stopsDirObj?.down || [];
   if (stops.length < 2) return 1.0;
   const toRad = d => d * Math.PI / 180;
   const hav = (a, b) => {
@@ -50,10 +62,16 @@ function calcDetour(stops) {
   return direct>0 ? Math.round((total/direct)*10)/10 : 1.0;
 }
 function calcOverlap(allStops, targetId) {
-  const ids=new Set((allStops[targetId]||[]).map(s=>s.id));
+  const targetStops = (allStops[targetId]?.up || []).concat(allStops[targetId]?.down || []);
+  const ids=new Set(targetStops.map(s=>s.id));
   if(!ids.size) return 0;
   let n=0;
-  Object.entries(allStops).forEach(([rid,stops])=>{ if(rid!==targetId) stops.forEach(s=>{ if(ids.has(s.id)) n++; }); });
+  Object.entries(allStops).forEach(([rid,dirObj])=>{
+    if(rid!==targetId) {
+      const stops = (dirObj?.up || []).concat(dirObj?.down || []);
+      stops.forEach(s=>{ if(ids.has(s.id)) n++; });
+    }
+  });
   return Math.min(100,Math.round((n/ids.size)*100));
 }
 function calcScore(gap,detour,overlap) {
@@ -63,80 +81,108 @@ const scoreColor = s => s>=70?"#E24B4A":s>=45?"#EF9F27":"#639922";
 const scoreLabel = s => s>=70?"불편 높음":s>=45?"주의":"양호";
 const scoreBg    = s => s>=70?{bg:"#FCEBEB",c:"#A32D2D"}:s>=45?{bg:"#FAEEDA",c:"#854F0B"}:{bg:"#EAF3DE",c:"#3B6D11"};
 
-// ── 지도 캔버스
-function MapCanvas({ routes, selectedId, onSelect, filter }) {
-  const ref = useRef(null);
-  const LAT_MIN=35.88, LAT_MAX=36.05, LON_MIN=126.55, LON_MAX=126.85;
-  const proj = useCallback((lat,lon,W,H)=>({
-    x:((lon-LON_MIN)/(LON_MAX-LON_MIN))*W,
-    y:H-((lat-LAT_MIN)/(LAT_MAX-LAT_MIN))*H
-  }),[]);
+// ── 지도 컴포넌트 (OpenStreetMap + Leaflet)
+function MapComponent({ routes, selectedId, onSelect, filter }) {
+  const mapRef = useRef(null);
+  const [map, setMap] = useState(null);
 
-  useEffect(()=>{
-    const c=ref.current; if(!c) return;
-    const ctx=c.getContext("2d"), W=c.width, H=c.height;
-    ctx.clearRect(0,0,W,H);
-    ctx.fillStyle="#f0ede8"; ctx.fillRect(0,0,W,H);
-    ctx.strokeStyle="#ddd8d0"; ctx.lineWidth=0.5;
-    for(let i=0;i<10;i++){
-      ctx.beginPath(); ctx.moveTo(i/10*W,0); ctx.lineTo(i/10*W,H); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,i/10*H); ctx.lineTo(W,i/10*H); ctx.stroke();
-    }
-    const vis=routes.filter(r=>{
-      if(filter==="gap")     return r.gap>=30;
-      if(filter==="detour")  return r.detour>=1.5;
-      if(filter==="overlap") return r.overlapPct>=40;
-      return true;
-    });
-    vis.forEach(r=>{
-      const stops=r.stops; if(!stops||stops.length<2) return;
-      const sel=r.id===selectedId;
-      ctx.globalAlpha=selectedId&&!sel?0.2:1;
-      ctx.strokeStyle=scoreColor(r.score); ctx.lineWidth=sel?4:2.5;
-      ctx.lineCap="round"; ctx.lineJoin="round";
-      ctx.beginPath();
-      stops.forEach((s,i)=>{ const {x,y}=proj(s.lat,s.lon,W,H); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-      ctx.stroke();
-      const mid=stops[Math.floor(stops.length/2)];
-      const {x,y}=proj(mid.lat,mid.lon,W,H);
-      ctx.fillStyle=scoreColor(r.score);
-      ctx.beginPath(); ctx.roundRect(x-16,y-9,32,16,3); ctx.fill();
-      ctx.fillStyle="#fff"; ctx.font="bold 10px sans-serif";
-      ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText(r.routeno,x,y);
-    });
-    ctx.globalAlpha=1;
-    vis.forEach(r=>{
-      (r.stops||[]).forEach(s=>{
-        const {x,y}=proj(s.lat,s.lon,W,H), sel=r.id===selectedId;
-        ctx.beginPath(); ctx.arc(x,y,sel?4:2.5,0,Math.PI*2);
-        ctx.fillStyle="#fff"; ctx.fill();
-        ctx.strokeStyle=scoreColor(r.score); ctx.lineWidth=sel?2:1; ctx.stroke();
-      });
-    });
-    ctx.globalAlpha=1;
-  },[routes,selectedId,filter,proj]);
+  const vis = routes.filter(r => {
+    if (filter === "gap") return r.gap >= 30;
+    if (filter === "detour") return r.detour >= 1.5;
+    if (filter === "overlap") return r.overlapPct >= 40;
+    return true;
+  });
 
-  const onClick=useCallback(e=>{
-    const c=ref.current, rect=c.getBoundingClientRect();
-    const mx=(e.clientX-rect.left)*(c.width/rect.width);
-    const my=(e.clientY-rect.top)*(c.height/rect.height);
-    let closest=null, minD=20;
-    routes.forEach(r=>(r.stops||[]).forEach(s=>{
-      const {x,y}=proj(s.lat,s.lon,c.width,c.height);
-      const d=Math.hypot(x-mx,y-my);
-      if(d<minD){minD=d;closest=r;}
-    }));
-    if(closest) onSelect(closest.id===selectedId?null:closest.id);
-  },[routes,selectedId,onSelect,proj]);
+  return (
+    <MapContainer
+      center={[35.965, 126.6]}
+      zoom={13}
+      style={{ height: "100%", width: "100%" }}
+      ref={mapRef}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; OpenStreetMap contributors'
+      />
 
-  return <canvas ref={ref} width={480} height={480} onClick={onClick}
-    style={{width:"100%",height:"100%",cursor:"crosshair",display:"block"}}/>;
+      {vis.map(r => (
+        <div key={r.id}>
+          {r.stops?.up && r.stops.up.length >= 2 && (
+            <Polyline
+              positions={r.stops.up.map(s => [s.lat, s.lon])}
+              color={scoreColor(r.score)}
+              weight={r.id === selectedId ? 4 : 2.5}
+              opacity={selectedId && r.id !== selectedId ? 0.3 : 0.8}
+              eventHandlers={{ click: () => onSelect(r.id === selectedId ? null : r.id) }}
+            >
+              <Popup>
+                <div style={{ fontSize: 12 }}>
+                  <strong>{r.routeno}번</strong><br/>
+                  {r.startnodenm} → {r.endnodenm}<br/>
+                  불편도: {r.score}점 ({scoreLabel(r.score)})
+                </div>
+              </Popup>
+            </Polyline>
+          )}
+
+          {r.stops?.down && r.stops.down.length >= 2 && (
+            <Polyline
+              positions={r.stops.down.map(s => [s.lat, s.lon])}
+              color={scoreColor(r.score)}
+              weight={r.id === selectedId ? 4 : 2.5}
+              opacity={selectedId && r.id !== selectedId ? 0.3 : 0.8}
+              dashArray="5,5"
+              eventHandlers={{ click: () => onSelect(r.id === selectedId ? null : r.id) }}
+            >
+              <Popup>
+                <div style={{ fontSize: 12 }}>
+                  <strong>{r.routeno}번 (귀로)</strong><br/>
+                  불편도: {r.score}점 ({scoreLabel(r.score)})
+                </div>
+              </Popup>
+            </Polyline>
+          )}
+
+          {(r.stops?.up || []).map(s => (
+            <CircleMarker
+              key={s.id + "u"}
+              center={[s.lat, s.lon]}
+              radius={r.id === selectedId ? 4 : 2.5}
+              fill={true}
+              fillColor="#fff"
+              fillOpacity={1}
+              color={scoreColor(r.score)}
+              weight={r.id === selectedId ? 2 : 1}
+              opacity={selectedId && r.id !== selectedId ? 0.3 : 1}
+            >
+              <Popup>{s.name}</Popup>
+            </CircleMarker>
+          ))}
+
+          {(r.stops?.down || []).map(s => (
+            <CircleMarker
+              key={s.id + "d"}
+              center={[s.lat, s.lon]}
+              radius={r.id === selectedId ? 4 : 2.5}
+              fill={true}
+              fillColor="#fff"
+              fillOpacity={1}
+              color={scoreColor(r.score)}
+              weight={r.id === selectedId ? 2 : 1}
+              opacity={selectedId && r.id !== selectedId ? 0.3 : 1}
+            >
+              <Popup>{s.name} (귀로)</Popup>
+            </CircleMarker>
+          ))}
+        </div>
+      ))}
+    </MapContainer>
+  );
 }
 
 // ── 메인 앱
 export default function App() {
-  const [cityCode, setCityCode]   = useState("37050");
+  const [cityCode, setCityCode]   = useState("35020");
   const [step, setStep]           = useState("input");
   const [loadMsg, setLoadMsg]     = useState("");
   const [loadPct, setLoadPct]     = useState(0);
@@ -151,7 +197,7 @@ export default function App() {
     try {
       setLoadMsg("노선 목록 조회 중...");
       const routeItems=await fetchRouteList(cityCode);
-      if(!routeItems.length) throw new Error("노선 없음 — 도시코드 확인 필요 (군산: 37050)");
+      if(!routeItems.length) throw new Error("노선 없음 — 도시코드 확인 필요 (군산: 35020)");
       setLoadPct(20);
 
       setLoadMsg(`노선 상세정보 (${routeItems.length}개)...`);
@@ -166,23 +212,27 @@ export default function App() {
       const allStops={};
       for(let i=0;i<details.length;i++){
         const items=await fetchRouteStops(cityCode,details[i].routeid);
-        allStops[details[i].routeid]=items
-          .map(s=>({id:s.nodeid,name:s.nodenm,lat:parseFloat(s.gpslati),lon:parseFloat(s.gpslong),seq:parseInt(s.nodeord)}))
-          .filter(s=>!isNaN(s.lat)&&!isNaN(s.lon))
-          .sort((a,b)=>a.seq-b.seq);
+        const stopsWithDir=items
+          .map(s=>({id:s.nodeid,name:s.nodenm,lat:parseFloat(s.gpslati),lon:parseFloat(s.gpslong),seq:parseInt(s.nodeord),dir:parseInt(s.updowncd)||0}))
+          .filter(s=>!isNaN(s.lat)&&!isNaN(s.lon));
+
+        // 상행/하행 분리
+        const up=stopsWithDir.filter(s=>s.dir===0).sort((a,b)=>a.seq-b.seq);
+        const down=stopsWithDir.filter(s=>s.dir===1).sort((a,b)=>a.seq-b.seq);
+        allStops[details[i].routeid]={up,down};
         setLoadPct(50+Math.round(i/details.length*40));
       }
 
       setLoadMsg("불편 지표 계산 중...");
       const processed=details.map(r=>{
         const stops=allStops[r.routeid]||[];
-        const gap=parseInt(r.intervaltime)||60;
+        const gap=60; // 배차간격 데이터는 추후 연동
         const detour=calcDetour(stops);
         const overlapPct=calcOverlap(allStops,r.routeid);
         const score=calcScore(gap,detour,overlapPct);
         return { id:r.routeid, routeno:r.routeno||r.routeid, routetp:r.routetp||"",
           startnodenm:r.startnodenm||"", endnodenm:r.endnodenm||"",
-          startvehicletime:r.startvehicletime||"-", endvehicletime:r.endvehicletime||"-",
+          startvehicletime:r.startvehicletime||"미정", endvehicletime:r.endvehicletime||"미정",
           gap, detour, overlapPct, score, stops };
       }).sort((a,b)=>b.score-a.score);
       setRoutes(processed); setLoadPct(100); setStep("done");
@@ -206,7 +256,7 @@ export default function App() {
         <div style={{fontSize:13,color:"var(--color-text-secondary)",marginBottom:"1.5rem"}}>TAGO 공공데이터 기반 버스 불편 분석</div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:12,color:"var(--color-text-secondary)",display:"block",marginBottom:4}}>도시코드</label>
-          <input value={cityCode} onChange={e=>setCityCode(e.target.value)} placeholder="37050 (군산)" style={{width:160}}/>
+          <input value={cityCode} onChange={e=>setCityCode(e.target.value)} placeholder="35020 (군산)" style={{width:160}}/>
         </div>
         <button onClick={loadData} style={{width:"100%",padding:"10px",fontSize:14,cursor:"pointer"}}>
           데이터 불러오기 →
@@ -263,7 +313,7 @@ export default function App() {
 
       <div style={{display:"flex",height:560}}>
         <div style={{flex:1,background:"#f0ede8",position:"relative",overflow:"hidden"}}>
-          <MapCanvas routes={routes} selectedId={selectedId} onSelect={setSelectedId} filter={filter}/>
+          <MapComponent routes={routes} selectedId={selectedId} onSelect={setSelectedId} filter={filter}/>
           {sel&&(
             <div style={{position:"absolute",bottom:12,left:12,background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-secondary)",borderRadius:"var(--border-radius-lg)",padding:"10px 12px",minWidth:200,maxWidth:260}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
@@ -277,7 +327,7 @@ export default function App() {
               </div>
               {[["배차간격",`${sel.gap}분`],["우회도",sel.detour.toFixed(1)],["노선중복",`${sel.overlapPct}%`],
                 ["불편도",`${sel.score}점`],["첫/막차",`${sel.startvehicletime}/${sel.endvehicletime}`],
-                ["정류장수",`${sel.stops.length}개`]].map(([k,v])=>(
+                ["정류장수",`${((sel.stops?.up?.length||0)+(sel.stops?.down?.length||0))}개`]].map(([k,v])=>(
                 <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
                   <span style={{color:"var(--color-text-secondary)"}}>{k}</span>
                   <span style={{fontWeight:500}}>{v}</span>
