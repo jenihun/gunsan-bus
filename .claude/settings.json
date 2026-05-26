@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$json = [Console]::In.ReadToEnd() | ConvertFrom-Json; $f = $json.tool_input.file_path; $repo = 'c:\\Users\\user\\OneDrive\\바탕 화면\\database_project'; if ($f -and (Test-Path $f)) { git -C $repo add $f 2>$null; $staged = git -C $repo diff --cached --name-only 2>$null; if ($staged) { git -C $repo commit -m \"auto: $(Split-Path $f -Leaf)\" 2>$null } }",
+            "statusMessage": "git 자동 커밋 중...",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
