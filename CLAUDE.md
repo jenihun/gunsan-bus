@@ -49,7 +49,7 @@ uvicorn files.main:app --reload --port 8000
 
 | 엔드포인트 | 설명 | 주요 파라미터 |
 |-----------|------|--------------|
-| `GET /api/routes` | 노선 목록 | `cityCode` (군산: `37050`) |
+| `GET /api/routes` | 노선 목록 | `cityCode` (군산: `35020`) |
 | `GET /api/route-info` | 노선 상세 (배차간격) | `cityCode`, `routeId` |
 | `GET /api/route-stops` | 노선별 경유 정류장 (GPS 포함) | `cityCode`, `routeId` |
 | `GET /api/stops` | 정류장 목록 | `cityCode`, `nodeNm` |
@@ -87,9 +87,9 @@ uvicorn files.main:app --reload --port 8000
 
 ## MVP 목표 기능 (우선순위순)
 
-1. [완료] 군산 노선 불편도 지도 (Canvas 기반)
-2. [완료] 노선 목록 (불편도순 정렬) + 노선 상세 팝업
-3. [완료] 배차공백 / 우회 / 노선중복 필터
+1. [미완] 군산 노선 불편도 지도 (Canvas 기반)
+2. [미완] 노선 목록 (불편도순 정렬) + 노선 상세 팝업
+3. [미완] 배차공백 / 우회 / 노선중복 필터
 4. [미완] 인근 도시(전주·익산·김제) 비교 대시보드
 5. [미완] 노선 분리 시뮬레이터
 6. [미완] 자동 분석 리포트 (AI 설명 생성)
