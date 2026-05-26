@@ -54,7 +54,7 @@ async def get_route_stops(cityCode: str = "35020", routeId: str = "", numOfRows:
 
 # 4. 정류소 목록
 @app.get("/api/stops")
-async def get_stops(cityCode: str = "37050", nodeNm: str = "", numOfRows: int = 100, pageNo: int = 1):
+async def get_stops(cityCode: str = "35020", nodeNm: str = "", numOfRows: int = 100, pageNo: int = 1):
     xml = await tago_get(f"{STOP_BASE}/getSttnNoList", {
         "cityCode": cityCode, "nodeNm": nodeNm, "numOfRows": numOfRows, "pageNo": pageNo
     })
