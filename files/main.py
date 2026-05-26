@@ -1,6 +1,10 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -11,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SERVICE_KEY = "CI5+4XCYCmU/dK9XHa5Op/crxM1jg03skSXZXCMW7NNZ2KxAYkPKHd7XM5m9N8YVAgWe9z9x+EVeuOFhppKSmg=="
+SERVICE_KEY = os.environ["TAGO_SERVICE_KEY"]
 
 ROUTE_BASE = "https://apis.data.go.kr/1613000/BusRouteInfoInqireService"
 STOP_BASE  = "https://apis.data.go.kr/1613000/BusSttnInfoInqireService"
